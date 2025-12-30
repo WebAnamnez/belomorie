@@ -1,4 +1,4 @@
-package com.example.myapplication
+package com.belomorie.service
 
 import org.junit.Test
 
