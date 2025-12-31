@@ -5,7 +5,12 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.media.AudioRecord
+import android.media.AudioFormat
 import android.media.MediaRecorder
+import java.io.FileOutputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -17,6 +22,12 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import com.belomorie.ml.YAMNetAnalyzer
+import com.belomorie.ml.PlaceAggregator
+import com.belomorie.database.BelomorieDatabase
+import com.belomorie.database.TrackingEntity
+import org.json.JSONObject
 import java.io.File
 
 class BelomorieService : Service() {
@@ -25,14 +36,23 @@ class BelomorieService : Service() {
         const val NOTIFICATION_ID = 1
         private const val RECORDING_DURATION_MS = 30_000L // 30 секунд
         private const val LOG_INTERVAL_MS = 60_000L // 1 минута
+        
+        // Параметры для AudioRecord (YAMNet требует 16kHz MONO)
+        const val SAMPLE_RATE = 16000 // 16kHz для YAMNet
+        const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
+        const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
+        val BUFFER_SIZE = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT) * 2
     }
     
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private var mediaRecorder: MediaRecorder? = null
+    private var audioRecord: AudioRecord? = null
     private var isRecording = false
     private var totalBytesRecorded = 0L
     private var recordingStartTime = 0L
     private var lastLogTime = 0L
+    private var yamNetAnalyzer: YAMNetAnalyzer? = null
+    private var placeAggregator: PlaceAggregator? = null
+    private var database: BelomorieDatabase? = null
     
     override fun onBind(intent: Intent?): IBinder? = null
     
@@ -40,6 +60,18 @@ class BelomorieService : Service() {
         Log.d("Belomorie", "🚀 Service started!")
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
+        
+        // Инициализация YAMNet
+        yamNetAnalyzer = YAMNetAnalyzer(this).apply {
+            initialize()
+        }
+        
+        // Инициализация Place Aggregator
+        placeAggregator = PlaceAggregator()
+        
+        // Инициализация базы данных
+        database = BelomorieDatabase.getDatabase(this)
+        
         startRecordingLoop()
         return START_STICKY
     }
@@ -47,6 +79,7 @@ class BelomorieService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         stopRecording()
+        yamNetAnalyzer?.close()
         serviceScope.cancel()
         Log.d("Belomorie", "🛑 Service stopped")
     }
@@ -70,51 +103,104 @@ class BelomorieService : Service() {
     }
     
     private suspend fun recordAudio() {
-        val outputFile = File(getExternalFilesDir(null), "temp_recording_${System.currentTimeMillis()}.m4a")
+        val outputFile = File(getExternalFilesDir(null), "temp_recording_${System.currentTimeMillis()}.pcm")
         
         try {
-            mediaRecorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                MediaRecorder(this)
-            } else {
-                @Suppress("DEPRECATION")
-                MediaRecorder()
-            }.apply {
-                setAudioSource(MediaRecorder.AudioSource.MIC)
-                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-                setOutputFile(outputFile.absolutePath)
-                setAudioSamplingRate(44100)
-                setAudioEncodingBitRate(128000)
-                
-                prepare()
-                start()
-                isRecording = true
-                
-                Log.d("Belomorie", "🎤 Начало записи: ${outputFile.name}")
+            // Создаем AudioRecord для записи PCM 16kHz MONO
+            audioRecord = AudioRecord(
+                MediaRecorder.AudioSource.MIC,
+                SAMPLE_RATE,
+                CHANNEL_CONFIG,
+                AUDIO_FORMAT,
+                BUFFER_SIZE
+            )
+            
+            if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
+                throw IllegalStateException("AudioRecord не инициализирован")
             }
             
-            // Ждем 30 секунд
-            delay(RECORDING_DURATION_MS)
+            audioRecord?.startRecording()
+            isRecording = true
             
-            mediaRecorder?.apply {
+            Log.d("Belomorie", "🎤 Начало записи PCM: ${outputFile.name}")
+            
+            // Записываем данные в файл
+            val fileOutputStream = FileOutputStream(outputFile)
+            val buffer = ByteArray(BUFFER_SIZE)
+            val startTime = System.currentTimeMillis()
+            var totalBytesRead = 0L
+            
+            // Записываем 30 секунд
+            while (System.currentTimeMillis() - startTime < RECORDING_DURATION_MS && isRecording) {
+                val bytesRead = audioRecord?.read(buffer, 0, buffer.size) ?: 0
+                when {
+                    bytesRead > 0 -> {
+                        fileOutputStream.write(buffer, 0, bytesRead)
+                        totalBytesRead += bytesRead
+                    }
+                    bytesRead == AudioRecord.ERROR_INVALID_OPERATION -> {
+                        Log.e("Belomorie", "❌ AudioRecord ERROR_INVALID_OPERATION")
+                        break
+                    }
+                    bytesRead == AudioRecord.ERROR_BAD_VALUE -> {
+                        Log.e("Belomorie", "❌ AudioRecord ERROR_BAD_VALUE")
+                        break
+                    }
+                    bytesRead < 0 -> {
+                        Log.w("Belomorie", "⚠️ AudioRecord read error: $bytesRead")
+                        // Продолжаем, но с небольшой задержкой
+                        delay(50)
+                    }
+                }
+                // Небольшая задержка для снижения нагрузки
+                delay(10)
+            }
+            
+            fileOutputStream.close()
+            
+            audioRecord?.apply {
                 stop()
                 release()
             }
-            mediaRecorder = null
+            audioRecord = null
             isRecording = false
             
-            // Удаляем файл сразу после записи
+            // Анализ звуков и места перед удалением
             val fileSize = outputFile.length()
             totalBytesRecorded += fileSize
             
+            // 1. Анализ Sound Profile через YAMNet
+            val soundProfileResult = yamNetAnalyzer?.analyzeSoundProfile(outputFile)
+            
+            // 2. Определение Place через Place Aggregator
+            val placeResult = if (soundProfileResult != null) {
+                placeAggregator?.determinePlace(soundProfileResult)
+            } else {
+                null
+            }
+            
+            if (soundProfileResult != null && placeResult != null) {
+                Log.d("Belomorie", "🎵 Sound Profile: ${soundProfileResult.sounds.keys.joinToString()}")
+                Log.d("Belomorie", "🏢 Place: ${placeResult.label} (${String.format("%.0f", placeResult.confidence * 100)}%)")
+                
+                // Сохраняем результат в базу данных
+                saveTrackingToDatabase(soundProfileResult, placeResult)
+            }
+            
+            // Удаляем файл сразу после анализа
             if (outputFile.exists()) {
                 outputFile.delete()
                 Log.d("Belomorie", "🗑️ Файл удален: ${outputFile.name} (${formatBytes(fileSize)})")
             }
             
         } catch (e: Exception) {
-            mediaRecorder?.release()
-            mediaRecorder = null
+            audioRecord?.apply {
+                if (state == AudioRecord.STATE_INITIALIZED) {
+                    stop()
+                }
+                release()
+            }
+            audioRecord = null
             isRecording = false
             if (outputFile.exists()) {
                 outputFile.delete()
@@ -126,14 +212,16 @@ class BelomorieService : Service() {
     private fun stopRecording() {
         if (isRecording) {
             try {
-                mediaRecorder?.apply {
-                    stop()
+                audioRecord?.apply {
+                    if (state == AudioRecord.STATE_INITIALIZED) {
+                        stop()
+                    }
                     release()
                 }
             } catch (e: Exception) {
                 Log.e("Belomorie", "Ошибка остановки записи: ${e.message}")
             }
-            mediaRecorder = null
+            audioRecord = null
             isRecording = false
         }
     }
@@ -187,6 +275,55 @@ class BelomorieService : Service() {
             bytes < 1024 -> "$bytes B"
             bytes < 1024 * 1024 -> "${bytes / 1024} KB"
             else -> String.format("%.2f MB", bytes / (1024.0 * 1024.0))
+        }
+    }
+    
+    /**
+     * Сохранение результата анализа в базу данных
+     */
+    private fun saveTrackingToDatabase(
+        soundProfile: com.belomorie.ml.SoundProfileResult,
+        place: com.belomorie.ml.PlaceResult
+    ) {
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                // Формируем Sound Profile в формате JSON
+                val soundProfileJson = JSONObject()
+                soundProfile.sounds.forEach { (category, entry) ->
+                    val entryJson = JSONObject().apply {
+                        put("duration_percent", entry.durationPercent)
+                        put("confidence", entry.confidence)
+                    }
+                    soundProfileJson.put(category, entryJson)
+                }
+                
+                // Формируем Place в формате JSON
+                val placeJson = JSONObject().apply {
+                    put("label", place.label)
+                    put("confidence", place.confidence)
+                }
+                
+                val jsonData = JSONObject().apply {
+                    // ✅ НОВОЕ: Две метки раздельно
+                    put("place", placeJson)
+                    put("sound_profile", soundProfileJson)
+                    
+                    // Пока нет эмоций и транскрипции (будет на следующих этапах)
+                    put("emotion", JSONObject.NULL)
+                    put("emotion_confidence", JSONObject.NULL)
+                    put("transcription", JSONObject.NULL)
+                }
+                
+                val tracking = TrackingEntity(
+                    json_data = jsonData.toString(),
+                    status = "pending"
+                )
+                
+                database?.trackingDao()?.insertTracking(tracking)
+                Log.d("Belomorie", "💾 Результат сохранен в БД: ${tracking.id}")
+            } catch (e: Exception) {
+                Log.e("Belomorie", "❌ Ошибка сохранения в БД: ${e.message}", e)
+            }
         }
     }
 }

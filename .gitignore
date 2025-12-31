@@ -13,3 +13,17 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# APK files
+*.apk
+app/release/
+app/build/outputs/
+
+# Keystore files
+*.jks
+*.keystore
+
+# Large model files (optional - uncomment if you don't want to commit models)
+# *.tflite
+# *.tar.gz
+# *.pb

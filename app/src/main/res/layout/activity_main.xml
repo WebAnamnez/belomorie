@@ -13,12 +13,28 @@
         android:textSize="28sp"
         android:textStyle="bold" />
 
+    <TextView
+        android:id="@+id/statusText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:text="Статус: Остановлен"
+        android:textSize="16sp"
+        android:textColor="#666666" />
+
+    <View
+        android:id="@+id/statusIndicator"
+        android:layout_width="16dp"
+        android:layout_height="16dp"
+        android:layout_marginTop="8dp"
+        android:background="@android:drawable/presence_offline" />
+
     <Button
-        android:id="@+id/startButton"
+        android:id="@+id/serviceButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="32dp"
-        android:text="🚀 START SERVICE"
+        android:text="🚀 ЗАПУСТИТЬ СЕРВИС"
         android:textSize="18sp" />
 
 </LinearLayout>
