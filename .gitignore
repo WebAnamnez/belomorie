@@ -27,3 +27,7 @@ app/build/outputs/
 # *.tflite
 # *.tar.gz
 # *.pb
+
+# Whisper model files (too large for GitHub)
+*.bin
+app/src/main/assets/models/*.bin

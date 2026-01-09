@@ -35,6 +35,16 @@ interface TrackingDao {
     
     @Query("SELECT COUNT(*) FROM trackings_local")
     suspend fun getTotalCount(): Int
+
+    @Query("SELECT * FROM trackings_local ORDER BY created_at DESC LIMIT 1")
+    suspend fun getLastTracking(): TrackingEntity?
+    
+    @Query("SELECT * FROM trackings_local ORDER BY created_at DESC LIMIT :limit")
+    fun getRecentTrackings(limit: Int): Flow<List<TrackingEntity>>
 }
+
+
+
+
 
 

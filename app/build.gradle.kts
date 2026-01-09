@@ -43,6 +43,17 @@ android {
     buildFeatures {
         compose = true
     }
+    
+    // Настройка NDK для компиляции нативных библиотек (whisper.cpp)
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+    
+    // Указываем архитектуры для компиляции (можно ограничить при необходимости)
+    ndkVersion = "27.0.12077973" // Версия NDK, рекомендуемая Android Studio
 }
 
 dependencies {

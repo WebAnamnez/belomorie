@@ -16,9 +16,16 @@ import java.util.UUID
  *     "speech": {"duration_percent": 40, "confidence": 0.7},
  *     ...
  *   },
- *   "emotion": {...},
- *   "transcription": {...}
+ *   "transcription": {
+ *     "text": "Обсуждаем проект с Ивановым",
+ *     "language": "ru",
+ *     "confidence": 0.85
+ *   },
+ *   "emotion": {...}
  * }
+ * 
+ * Примечание: Пока транскрипция хранится в plaintext в json_data.
+ * Позже будет добавлено шифрование (AES-256-GCM) и отдельная таблица.
  */
 @Entity(tableName = "trackings_local")
 data class TrackingEntity(

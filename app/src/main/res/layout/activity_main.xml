@@ -1,40 +1,73 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:gravity="center"
-    android:orientation="vertical"
-    android:padding="32dp">
+    android:layout_height="match_parent">
 
-    <TextView
-        android:layout_width="wrap_content"
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Belomorie"
-        android:textSize="28sp"
-        android:textStyle="bold" />
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:padding="32dp">
 
-    <TextView
-        android:id="@+id/statusText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:text="Статус: Остановлен"
-        android:textSize="16sp"
-        android:textColor="#666666" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Belomorie"
+            android:textSize="28sp"
+            android:textStyle="bold" />
 
-    <View
-        android:id="@+id/statusIndicator"
-        android:layout_width="16dp"
-        android:layout_height="16dp"
-        android:layout_marginTop="8dp"
-        android:background="@android:drawable/presence_offline" />
+        <TextView
+            android:id="@+id/statusText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="Статус: Остановлен"
+            android:textSize="16sp"
+            android:textColor="#666666" />
 
-    <Button
-        android:id="@+id/serviceButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="32dp"
-        android:text="🚀 ЗАПУСТИТЬ СЕРВИС"
-        android:textSize="18sp" />
+        <View
+            android:id="@+id/statusIndicator"
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:layout_marginTop="8dp"
+            android:background="@android:drawable/presence_offline" />
 
-</LinearLayout>
+        <Button
+            android:id="@+id/serviceButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="32dp"
+            android:text="🚀 ЗАПУСТИТЬ СЕРВИС"
+            android:textSize="18sp" />
+
+        <!-- Блок для отображения последних результатов анализа -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="32dp"
+            android:background="#DDDDDD" />
+
+        <TextView
+            android:id="@+id/resultsTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="Последний результат анализа"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/resultsText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Пока нет записей в БД.\nЗапустите сервис и подождите 30 секунд."
+            android:textSize="12sp"
+            android:textColor="#333333"
+            android:fontFamily="monospace"
+            android:textIsSelectable="true" />
+
+    </LinearLayout>
+
+</ScrollView>

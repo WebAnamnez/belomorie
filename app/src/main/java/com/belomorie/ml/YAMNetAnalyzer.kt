@@ -164,13 +164,14 @@ class YAMNetAnalyzer(private val context: Context) {
     /**
      * Агрегация результатов фреймов в Sound Profile
      * Правильная логика: доля времени, а не среднее значение
+     * ИСПРАВЛЕНО: каждый фрейм даёт максимум 1 голос для каждой категории
      */
     private fun aggregateSoundProfile(frameResults: List<FrameResult>): SoundProfileResult {
         val totalFrames = frameResults.size
         
         // Для каждой категории звуков считаем:
-        // 1. В скольких фреймах она была в top-5
-        // 2. Среднюю confidence в этих фреймах
+        // 1. В скольких фреймах она была в top-5 (каждый фрейм = максимум 1 раз)
+        // 2. Среднюю confidence в этих фреймах (берём максимальный confidence из всех классов категории в фрейме)
         val categoryStats = mutableMapOf<String, CategoryStats>()
         
         frameResults.forEach { frame ->
@@ -182,15 +183,25 @@ class YAMNetAnalyzer(private val context: Context) {
                 val stats = categoryStats.getOrPut("silence") { CategoryStats() }
                 stats.frameCount++
                 stats.totalConfidence += maxScore.coerceAtMost(0.3f) // Ограничиваем для тишины
-            }
-            
-            // Обрабатываем каждый класс в top-5
-            frame.topClasses.forEach { classScore ->
-                val category = mapClassToCategory(classScore.className)
-                if (category != null && !isSilence) {
+            } else {
+                // Группируем классы по категориям для этого фрейма
+                // Каждая категория может появиться только один раз на фрейм
+                val categoriesInFrame = mutableMapOf<String, Float>() // category -> max confidence
+                
+                frame.topClasses.forEach { classScore ->
+                    val category = mapClassToCategory(classScore.className)
+                    if (category != null) {
+                        // Берём максимальный confidence для категории в этом фрейме
+                        val currentMax = categoriesInFrame[category] ?: 0f
+                        categoriesInFrame[category] = maxOf(currentMax, classScore.score)
+                    }
+                }
+                
+                // Увеличиваем счетчик только один раз для каждой категории в этом фрейме
+                categoriesInFrame.forEach { (category, maxConfidence) ->
                     val stats = categoryStats.getOrPut(category) { CategoryStats() }
                     stats.frameCount++
-                    stats.totalConfidence += classScore.score
+                    stats.totalConfidence += maxConfidence
                 }
             }
         }

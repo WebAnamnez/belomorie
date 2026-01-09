@@ -25,6 +25,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.belomorie.ml.YAMNetAnalyzer
 import com.belomorie.ml.PlaceAggregator
+import com.belomorie.ml.WhisperTranscriber
 import com.belomorie.database.BelomorieDatabase
 import com.belomorie.database.TrackingEntity
 import org.json.JSONObject
@@ -52,6 +53,7 @@ class BelomorieService : Service() {
     private var lastLogTime = 0L
     private var yamNetAnalyzer: YAMNetAnalyzer? = null
     private var placeAggregator: PlaceAggregator? = null
+    private var whisperTranscriber: WhisperTranscriber? = null
     private var database: BelomorieDatabase? = null
     
     override fun onBind(intent: Intent?): IBinder? = null
@@ -69,6 +71,11 @@ class BelomorieService : Service() {
         // Инициализация Place Aggregator
         placeAggregator = PlaceAggregator()
         
+        // Инициализация Whisper для транскрипции
+        whisperTranscriber = WhisperTranscriber(this).apply {
+            initialize()
+        }
+        
         // Инициализация базы данных
         database = BelomorieDatabase.getDatabase(this)
         
@@ -80,6 +87,7 @@ class BelomorieService : Service() {
         super.onDestroy()
         stopRecording()
         yamNetAnalyzer?.close()
+        whisperTranscriber?.close()
         serviceScope.cancel()
         Log.d("Belomorie", "🛑 Service stopped")
     }
@@ -179,12 +187,18 @@ class BelomorieService : Service() {
                 null
             }
             
+            // 3. Транскрипция речи через Whisper (перед удалением файла!)
+            val transcriptionResult = whisperTranscriber?.transcribe(outputFile)
+            
             if (soundProfileResult != null && placeResult != null) {
                 Log.d("Belomorie", "🎵 Sound Profile: ${soundProfileResult.sounds.keys.joinToString()}")
                 Log.d("Belomorie", "🏢 Place: ${placeResult.label} (${String.format("%.0f", placeResult.confidence * 100)}%)")
+                if (transcriptionResult != null) {
+                    Log.d("Belomorie", "🗣️ Transcription: ${transcriptionResult.text.take(50)}...")
+                }
                 
                 // Сохраняем результат в базу данных
-                saveTrackingToDatabase(soundProfileResult, placeResult)
+                saveTrackingToDatabase(soundProfileResult, placeResult, transcriptionResult)
             }
             
             // Удаляем файл сразу после анализа
@@ -283,7 +297,8 @@ class BelomorieService : Service() {
      */
     private fun saveTrackingToDatabase(
         soundProfile: com.belomorie.ml.SoundProfileResult,
-        place: com.belomorie.ml.PlaceResult
+        place: com.belomorie.ml.PlaceResult,
+        transcription: com.belomorie.ml.TranscriptionResult? = null
     ) {
         serviceScope.launch(Dispatchers.IO) {
             try {
@@ -303,15 +318,28 @@ class BelomorieService : Service() {
                     put("confidence", place.confidence)
                 }
                 
+                // Формируем транскрипцию (пока без шифрования, добавим позже)
+                val transcriptionJson = if (transcription != null) {
+                    JSONObject().apply {
+                        put("text", transcription.text)
+                        put("language", transcription.language)
+                        put("confidence", transcription.confidence)
+                    }
+                } else {
+                    JSONObject.NULL
+                }
+                
                 val jsonData = JSONObject().apply {
                     // ✅ НОВОЕ: Две метки раздельно
                     put("place", placeJson)
                     put("sound_profile", soundProfileJson)
                     
-                    // Пока нет эмоций и транскрипции (будет на следующих этапах)
+                    // ✅ НОВОЕ: Транскрипция (пока без шифрования)
+                    put("transcription", transcriptionJson)
+                    
+                    // Пока нет эмоций (будет на следующем этапе)
                     put("emotion", JSONObject.NULL)
                     put("emotion_confidence", JSONObject.NULL)
-                    put("transcription", JSONObject.NULL)
                 }
                 
                 val tracking = TrackingEntity(
